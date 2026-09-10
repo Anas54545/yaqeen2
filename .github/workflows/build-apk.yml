@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,6 +22,7 @@ jobs:
           unzip -q yaqeen_app.zip -d extracted
           cp -a extracted/yaqeen_app/. .
           rm -rf extracted yaqeen_app.zip
+          mkdir -p assets
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -32,32 +34,98 @@ jobs:
       - name: Generate Android project
         run: flutter create . --platforms=android --org com.yaqeen
 
-      - name: Add Android permissions
+      - name: Configure Android
         shell: bash
         run: |
           set -e
+
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          p = Path('android/app/src/main/AndroidManifest.xml')
-          s = p.read_text()
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          s = manifest.read_text()
 
-          perms = '''    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-          '''
+          permissions = """
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+          """
 
-          if 'android.permission.ACCESS_FINE_LOCATION' not in s:
+          if "android.permission.ACCESS_FINE_LOCATION" not in s:
               s = re.sub(
-                  r'(<manifest\b[^>]*>)',
-                  r'\1\n' + perms,
+                  r"(<manifest\\b[^>]*>)",
+                  r"\\1" + permissions,
                   s,
                   count=1
               )
 
-          p.write_text(s)
+          manifest.write_text(s)
+
+          # Configure desugaring for flutter_local_notifications
+          gradle = Path("android/app/build.gradle")
+          if gradle.exists():
+              s = gradle.read_text()
+
+              if "coreLibraryDesugaringEnabled true" not in s:
+                  s = s.replace(
+                      "compileOptions {",
+                      """compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17"""
+                  )
+
+              if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'" not in s:
+                  if "dependencies {" in s:
+                      s = s.replace(
+                          "dependencies {",
+                          """dependencies {
+        coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'""",
+                          1
+                      )
+                  else:
+                      s += """
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+}
+"""
+
+              gradle.write_text(s)
+
+          # Kotlin DSL projects
+          gradlek = Path("android/app/build.gradle.kts")
+          if gradlek.exists():
+              s = gradlek.read_text()
+
+              if "isCoreLibraryDesugaringEnabled = true" not in s:
+                  s = s.replace(
+                      "compileOptions {",
+                      """compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17""",
+                      1
+                  )
+
+              if 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' not in s:
+                  if "dependencies {" in s:
+                      s = s.replace(
+                          "dependencies {",
+                          """dependencies {
+        coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")""",
+                          1
+                      )
+                  else:
+                      s += """
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+"""
+
+              gradlek.write_text(s)
           PY
 
       - name: Install dependencies

@@ -1,0 +1,42 @@
+name: Build Yaqeen APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract Yaqeen project
+        run: |
+          mkdir -p extracted
+          unzip -q yaqeen_app.zip -d extracted
+          cp -r extracted/yaqeen_app/. .
+          rm -rf extracted
+          rm -f yaqeen_app.zip
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.2'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaqeen-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

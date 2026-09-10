@@ -3,36 +3,67 @@ name: Build Yaqeen APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Extract Yaqeen project
+        shell: bash
         run: |
-          mkdir -p extracted
-          unzip -q yaqeen_app.zip -d extracted
-          cp -r extracted/yaqeen_app/. .
+          set -e
           rm -rf extracted
-          rm -f yaqeen_app.zip
+          mkdir extracted
+          unzip -q yaqeen_app.zip -d extracted
+          cp -a extracted/yaqeen_app/. .
+          rm -rf extracted yaqeen_app.zip
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.1'
+          flutter-version: '3.38.5'
           channel: stable
           cache: true
+
+      - name: Generate Android project
+        run: flutter create . --platforms=android --org com.yaqeen
+
+      - name: Add Android permissions
+        shell: bash
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('android/app/src/main/AndroidManifest.xml')
+          s = p.read_text()
+
+          perms = '''    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+          '''
+
+          if 'android.permission.ACCESS_FINE_LOCATION' not in s:
+              s = re.sub(
+                  r'(<manifest\b[^>]*>)',
+                  r'\1\n' + perms,
+                  s,
+                  count=1
+              )
+
+          p.write_text(s)
+          PY
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build release APK
         run: flutter build apk --release
 
       - name: Upload APK
